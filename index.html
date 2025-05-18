@@ -61,6 +61,7 @@
         }
         .detail-value {
             flex: 1;
+            white-space: pre-wrap; /* Preserve whitespace and line breaks */
         }
         .total-amount {
             font-weight: bold;
@@ -100,6 +101,12 @@
         .upload-label:hover {
             background-color: #2980b9;
         }
+        #loading {
+            display: none;
+            text-align: center;
+            margin: 10px 0;
+            color: #555;
+        }
     </style>
 </head>
 <body>
@@ -110,6 +117,7 @@
             <input type="file" id="fileInput" accept=".pdf">
             <label for="fileInput" class="upload-label">Choose PDF File</label>
             <p id="fileName"></p>
+            <div id="loading">Processing...</div>
         </div>
         
         <div class="receipt-container" id="receiptContainer">
@@ -203,7 +211,8 @@
             </div>
             
             <div class="button-container">
-                <button id="downloadBtn">Download Receipt</button>
+                <button id="downloadBtn" disabled title="Upload a valid PDF to enable download">Download Receipt</button>
+                <button id="resetBtn" style="background-color: #e74c3c; margin-left: 10px;">Reset</button>
             </div>
         </div>
     </div>
@@ -215,21 +224,43 @@
         const fileInput = document.getElementById('fileInput');
         const fileNameDisplay = document.getElementById('fileName');
         const receiptContainer = document.getElementById('receiptContainer');
+        const loadingIndicator = document.getElementById('loading');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resetBtn = document.getElementById('resetBtn');
         
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
             if (!file) return;
             
             fileNameDisplay.textContent = `Selected file: ${file.name}`;
+            loadingIndicator.style.display = 'block';
             
             try {
                 const extractedData = await extractDataFromPDF(file);
                 populateReceipt(extractedData);
                 receiptContainer.style.display = 'block';
+                downloadBtn.disabled = false;
             } catch (error) {
                 console.error('Error processing PDF:', error);
-                alert('Error processing PDF. Please make sure it has the correct format.');
+                let message = 'Error processing PDF. Please ensure it is a valid PDF and has the correct format.';
+                if (error.message.includes('Invalid PDF')) {
+                    message = 'The uploaded file is not a valid PDF.';
+                } else if (error.message.includes('No text')) {
+                    message = 'The PDF contains no extractable text.';
+                }
+                alert(message);
+            } finally {
+                loadingIndicator.style.display = 'none';
             }
+        });
+        
+        resetBtn.addEventListener('click', () => {
+            fileInput.value = '';
+            fileNameDisplay.textContent = '';
+            receiptContainer.style.display = 'none';
+            downloadBtn.disabled = true;
+            document.querySelectorAll('.detail-value').forEach(el => el.textContent = '');
+            document.getElementById('totalAmount').textContent = '';
         });
         
         async function extractDataFromPDF(file) {
@@ -260,8 +291,14 @@
             
             const customerIdMatch = senderSection.match(/Customer Id: ([^\n]+)/i);
             const senderNameMatch = senderSection.match(/Name: ([^\n]+)/i);
-            const senderAddressMatch = senderSection.match(/Address: ([^\n]+)/i);
-            const nationalIdMatch = senderSection.match(/National ID: ([^\n]+)/i);
+            const senderAddressMatch = senderSection.match(/Address: ([\s\S]*?)(?=(?:National ID|Passport))/i);
+            let senderAddress = 'N/A';
+            let senderAddressRaw = 'N/A'; // Preserve raw multi-line format
+            if (senderAddressMatch) {
+                senderAddressRaw = senderAddressMatch[1].trim();
+                senderAddress = senderAddressRaw.replace(/\n/g, ', ').trim();
+            }
+            const nationalIdMatch = senderSection.match(/(?:National ID|Passport): ([^\n]+)/i);
             const nationalityMatch = senderSection.match(/Nationality: ([^\n]+)/i);
             const professionMatch = senderSection.match(/Profession: ([^\n]+)/i);
             const senderMobileMatch = senderSection.match(/Mobile No: (\d+)/i) || 
@@ -466,7 +503,8 @@
                 // Sender details
                 customerId: customerIdMatch ? customerIdMatch[1].trim() : 'N/A',
                 senderName: senderNameMatch ? senderNameMatch[1].trim() : 'N/A',
-                senderAddress: senderAddressMatch ? senderAddressMatch[1].trim() : 'N/A',
+                senderAddress: senderAddress,
+                senderAddressRaw: senderAddressRaw, // Store raw multi-line address
                 nationalId: nationalIdMatch ? nationalIdMatch[1].trim() : 'N/A',
                 nationality: nationalityMatch ? nationalityMatch[1].trim() : 'N/A',
                 profession: professionMatch ? professionMatch[1].trim() : 'N/A',
@@ -503,8 +541,8 @@
             document.getElementById('customerId').textContent = data.customerId || 'N/A';
             console.log('Setting senderName:', data.senderName || 'N/A');
             document.getElementById('senderName').textContent = data.senderName || 'N/A';
-            console.log('Setting senderAddress:', data.senderAddress || 'N/A');
-            document.getElementById('senderAddress').textContent = data.senderAddress || 'N/A';
+            console.log('Setting senderAddress:', data.senderAddressRaw || 'N/A');
+            document.getElementById('senderAddress').innerHTML = (data.senderAddressRaw || 'N/A').replace(/\n/g, '<br>');
             console.log('Setting nationalId:', data.nationalId || 'N/A');
             document.getElementById('nationalId').textContent = data.nationalId || 'N/A';
             console.log('Setting nationality:', data.nationality || 'N/A');
@@ -563,7 +601,11 @@
             doc.setTextColor(0, 0, 0);
             doc.text(`Customer Id: ${data.customerId || 'N/A'}`, 14, yPos); yPos += 6;
             doc.text(`Name: ${data.senderName || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Address: ${data.senderAddress || 'N/A'}`, 14, yPos); yPos += 6;
+            // Split the raw address into lines for PDF rendering
+            const addressLines = (data.senderAddressRaw || 'N/A').split('\n');
+            for (let line of addressLines) {
+                doc.text(`Address: ${line.trim()}`, 14, yPos); yPos += 6;
+            }
             doc.text(`National ID: ${data.nationalId || 'N/A'}`, 14, yPos); yPos += 6;
             doc.text(`Nationality: ${data.nationality || 'N/A'}`, 14, yPos); yPos += 6;
             doc.text(`Profession: ${data.profession || 'N/A'}`, 14, yPos); yPos += 6;
