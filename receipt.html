@@ -345,7 +345,7 @@
         const fullBankName = params.get('bankName');
         const shortBankName = getBankShortName(fullBankName);
         
-        document.getElementById('bankName').textContent = shortBankName;
+        document.getElementById('bankName').textContent = 'Bank '+shortBankName;
         document.getElementById('transactionType').textContent = `Transfer Bank ${shortBankName}`;
       }
       
