@@ -107,6 +107,12 @@
             margin: 10px 0;
             color: #555;
         }
+        .error-message {
+            color: #e74c3c;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -118,6 +124,7 @@
             <label for="fileInput" class="upload-label">Choose PDF File</label>
             <p id="fileName"></p>
             <div id="loading">Processing...</div>
+            <div id="countryError" class="error-message">Receipt can only be downloaded for Indonesia payout country.</div>
         </div>
         
         <div class="receipt-container" id="receiptContainer">
@@ -227,6 +234,7 @@
         const loadingIndicator = document.getElementById('loading');
         const downloadBtn = document.getElementById('downloadBtn');
         const resetBtn = document.getElementById('resetBtn');
+        const countryError = document.getElementById('countryError');
         
         fileInput.addEventListener('change', async (e) => {
             const file = e.target.files[0];
@@ -234,12 +242,28 @@
             
             fileNameDisplay.textContent = `Selected file: ${file.name}`;
             loadingIndicator.style.display = 'block';
+            countryError.style.display = 'none';
             
             try {
                 const extractedData = await extractDataFromPDF(file);
                 populateReceipt(extractedData);
                 receiptContainer.style.display = 'block';
-                downloadBtn.disabled = false;
+                
+                // Check if payout country is Indonesia
+                const isIndonesia = extractedData.payoutCountry && 
+                                  (extractedData.payoutCountry.toLowerCase().includes('indonesia') || 
+                                   extractedData.payoutCountry.toLowerCase().includes('indo'));
+                
+                if (isIndonesia) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.title = 'Download Receipt';
+                    downloadBtn.style.backgroundColor = '#3498db';
+                } else {
+                    downloadBtn.disabled = true;
+                    downloadBtn.title = 'Receipt can only be downloaded for Indonesia payout country';
+                    downloadBtn.style.backgroundColor = '#95a5a6';
+                    countryError.style.display = 'block';
+                }
             } catch (error) {
                 console.error('Error processing PDF:', error);
                 let message = 'Error processing PDF. Please ensure it is a valid PDF and has the correct format.';
@@ -259,8 +283,10 @@
             fileNameDisplay.textContent = '';
             receiptContainer.style.display = 'none';
             downloadBtn.disabled = true;
+            downloadBtn.style.backgroundColor = '#3498db';
             document.querySelectorAll('.detail-value').forEach(el => el.textContent = '');
             document.getElementById('totalAmount').textContent = '';
+            countryError.style.display = 'none';
         });
         
         async function extractDataFromPDF(file) {
@@ -587,65 +613,26 @@
         }
         
         function downloadReceipt(data) {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
+            // Format the amount
+            const amountMatch = data.payoutAmount.match(/([\d,]+\.\d{2})/);
+            const amount = amountMatch ? amountMatch[1].replace(',', '') : '2529000';
             
-            let yPos = 20;
+            // Create Brunei time (UTC+8)
+            const now = new Date();
+            const bruneiTime = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+            const formattedDate = bruneiTime.toISOString().replace('T', ' ').replace(/\.\d+Z/, '') + ' BNT';
             
-            // Sender details
-            doc.setFontSize(12);
-            doc.setTextColor(30, 80, 150);
-            doc.text('Sender Details', 14, yPos); yPos += 8;
+            // Open the receipt page with data as URL parameters
+            const receiptUrl = 'receipt.html?' + new URLSearchParams({
+                date: formattedDate,
+                bankName: data.bankName || 'BRI',
+                accountNo: data.accountNo || 'N/A',
+                beneficiaryName: data.beneficiaryName || 'N/A',
+                amount: amount,
+                ref: data.receiptNo || '73644H66088'
+            }).toString();
             
-            doc.setFontSize(10);
-            doc.setTextColor(0, 0, 0);
-            doc.text(`Customer Id: ${data.customerId || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Name: ${data.senderName || 'N/A'}`, 14, yPos); yPos += 6;
-            // Split the raw address into lines for PDF rendering
-            const addressLines = (data.senderAddressRaw || 'N/A').split('\n');
-            for (let line of addressLines) {
-                doc.text(`Address: ${line.trim()}`, 14, yPos); yPos += 6;
-            }
-            doc.text(`National ID: ${data.nationalId || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Nationality: ${data.nationality || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Profession: ${data.profession || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Mobile No: ${data.senderMobile || 'N/A'}`, 14, yPos); yPos += 10;
-            
-            // Beneficiary details
-            doc.setFontSize(12);
-            doc.setTextColor(30, 80, 150);
-            doc.text('Beneficiary Details', 14, yPos); yPos += 8;
-            
-            doc.setFontSize(10);
-            doc.setTextColor(0, 0, 0);
-            doc.text(`Name: ${data.beneficiaryName || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Bank Name: ${data.bankName || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Account No: ${data.accountNo || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`IFSC/Bank Code: ${data.ifscCode || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Mobile No: ${data.beneficiaryMobile || 'N/A'}`, 14, yPos); yPos += 10;
-            
-            // Payment details
-            doc.setFontSize(12);
-            doc.setTextColor(30, 80, 150);
-            doc.text('Payment Details', 14, yPos); yPos += 8;
-            
-            doc.setFontSize(10);
-            doc.setTextColor(0, 0, 0);
-            doc.text(`Payout Country: ${data.payoutCountry || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Source: ${data.source || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Purpose: ${data.purpose || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Payout Amount: ${data.payoutAmount || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Exchange Rate: ${data.exchangeRate || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Pay in Amount: ${data.payInAmount || 'N/A'}`, 14, yPos); yPos += 6;
-            doc.text(`Service Charge: ${data.serviceCharge || 'N/A'}`, 14, yPos); yPos += 8;
-            
-            // Total amount
-            doc.setFontSize(12);
-            doc.setTextColor(30, 80, 150);
-            doc.text(`Total Amount: ${data.totalAmount || 'N/A'}`, 14, yPos);
-            
-            // Save the PDF
-            doc.save(`Receipt_${data.receiptNo}.pdf`);
+            window.open(receiptUrl, '_blank');
         }
     </script>
 </body>
